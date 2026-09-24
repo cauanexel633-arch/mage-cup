@@ -13,8 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from email_service import send_otp_email
-from otp_store import (
+from api.email_service import send_otp_email
+from api.otp_store import (
     OTPRecord,
     delete,
     get,
@@ -24,7 +24,6 @@ from otp_store import (
     set_record,
     sends_last_hour,
 )
-
 
 app = FastAPI(
     title="Mage Cup Email Bridge",
@@ -38,7 +37,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
-
 
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
@@ -93,12 +91,13 @@ async def root() -> JSONResponse:
             "success": True,
             "service": "Mage Cup Email Bridge",
             "status": "online",
-            "api": "/api/health",
+            "api": "/api",
+            "health": "/api/health",
         },
     )
 
 
-@app.api_route("/api/health", methods=["GET", "OPTIONS"])
+@app.api_route("/health", methods=["GET", "OPTIONS"])
 async def health() -> JSONResponse:
     return JSONResponse(
         status_code=200,
@@ -110,7 +109,7 @@ async def health() -> JSONResponse:
     )
 
 
-@app.api_route("/api/send-otp", methods=["POST", "OPTIONS"])
+@app.api_route("/send-otp", methods=["POST", "OPTIONS"])
 async def send_otp(request: Request) -> JSONResponse:
     if request.method == "OPTIONS":
         return JSONResponse(status_code=204, content=None)
@@ -133,11 +132,9 @@ async def send_otp(request: Request) -> JSONResponse:
     if last_send is not None and last_send < cooldown_seconds:
         return json_error("Aguarde antes de solicitar outro código.", 429)
 
-    # Additional abuse guard: max 10 sends/hour for each email.
     if sends_last_hour(email) >= 10:
         return json_error("Limite temporário de solicitações excedido.", 429)
 
-    # A simple IP guard using the same in-memory history bucket.
     ip = safe_request_ip(request)
     ip_key = f"__ip__:{ip}"
     ip_last_send = seconds_since_last_send(ip_key)
@@ -151,7 +148,6 @@ async def send_otp(request: Request) -> JSONResponse:
     expires_at = created_at + ttl_seconds()
 
     try:
-        # The plaintext OTP exists only for this request and is never stored.
         send_otp_email(email, code)
     except Exception as exc:
         print(f"Email send failed: {type(exc).__name__}: {exc}")
@@ -175,7 +171,7 @@ async def send_otp(request: Request) -> JSONResponse:
     )
 
 
-@app.api_route("/api/verify-otp", methods=["POST", "OPTIONS"])
+@app.api_route("/verify-otp", methods=["POST", "OPTIONS"])
 async def verify_otp(request: Request) -> JSONResponse:
     if request.method == "OPTIONS":
         return JSONResponse(status_code=204, content=None)
@@ -210,11 +206,9 @@ async def verify_otp(request: Request) -> JSONResponse:
         )
 
     record.attempts += 1
-
     candidate = hash_otp(email, code)
-    stored = record.hash
 
-    if not hmac.compare_digest(candidate, stored):
+    if not hmac.compare_digest(candidate, record.hash):
         if record.attempts >= 5:
             delete(email)
             return json_error(
