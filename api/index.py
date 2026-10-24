@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.email_service import send_otp_email
+from api.email_service import send_custom_message_email, send_otp_email
 from api.otp_store import (
     OTPRecord,
     delete,
@@ -297,6 +297,7 @@ async def root() -> JSONResponse:
                 "/api/health",
                 "/api/send-otp",
                 "/api/verify-otp",
+                "/api/send-message",
             ],
         }
     )
@@ -521,6 +522,79 @@ async def send_otp(
     return await _send_otp(
         request
     )
+
+
+# =========================================================
+# SEND CUSTOM MESSAGE TO PROJECT OWNER
+# =========================================================
+
+# Destinatário fixo no servidor: o cliente Godot não pode escolher
+# para quem enviar mensagens.
+CONTACT_EMAIL = "cauanexel633@gmail.com"
+
+
+async def _send_message(request: Request) -> JSONResponse:
+    if request.method == "OPTIONS":
+        return JSONResponse(status_code=204, content=None)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return error("JSON inválido.", 400)
+
+    if not isinstance(body, dict):
+        return error("JSON inválido.", 400)
+
+    message_text = body.get("message")
+    if not isinstance(message_text, str):
+        return error("O campo 'message' deve ser um texto.", 400)
+
+    message_text = message_text.strip()
+    if not message_text:
+        return error("Digite uma mensagem antes de enviar.", 400)
+
+    if len(message_text) > 5000:
+        return error("A mensagem deve ter no máximo 5000 caracteres.", 413)
+
+    # Limite simples por IP. O armazenamento atual é em memória e serve
+    # como proteção básica para protótipo; produção deve usar rate-limit
+    # compartilhado (Redis/KV) e/ou CAPTCHA.
+    ip_key = f"__message_ip__:{request_ip(request)}"
+    ip_last = seconds_since_last_send(ip_key)
+
+    if ip_last is not None and ip_last < 30:
+        return error("Aguarde 30 segundos antes de enviar outra mensagem.", 429)
+
+    if sends_last_hour(ip_key) >= 10:
+        return error("Limite de mensagens por hora excedido.", 429)
+
+    try:
+        send_custom_message_email(CONTACT_EMAIL, message_text)
+    except Exception as exc:
+        print(f"Custom email error: {type(exc).__name__}: {exc}")
+        return error("Não foi possível enviar a mensagem por e-mail.", 502)
+
+    register_send(ip_key)
+    print(f"Mensagem do formulário do Mage Cup enviada. Tamanho: {len(message_text)} caracteres.")
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "Mensagem enviada com sucesso.",
+        }
+    )
+
+
+@app.api_route(
+    "/send-message",
+    methods=["POST", "OPTIONS"],
+)
+@app.api_route(
+    "/api/send-message",
+    methods=["POST", "OPTIONS"],
+)
+async def send_message(request: Request) -> JSONResponse:
+    return await _send_message(request)
 
 
 # =========================================================
