@@ -209,8 +209,12 @@ func enviar_mensagem() -> void:
     )
     http.queue_free()
 
-    if status_http >= 200 and status_http < 300 \\
-    and dados is Dictionary and dados.get("success", false):
+    if (
+        status_http >= 200
+        and status_http < 300
+        and dados is Dictionary
+        and dados.get("success", false)
+    ):
         print("Mensagem enviada!")
         $LineEdit.clear()
     else:
