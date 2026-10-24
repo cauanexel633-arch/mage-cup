@@ -142,6 +142,84 @@ Sucesso:
 
 O código nunca é retornado.
 
+## Enviar mensagem personalizada para o responsável
+
+O endpoint `POST /api/send-message` recebe o texto escrito pelo jogador e envia um e-mail para o endereço fixo configurado no servidor (`cauanexel633@gmail.com`). O cliente não pode definir o destinatário.
+
+```http
+POST https://mage-cup-mdcb.vercel.app/api/send-message
+Content-Type: application/json
+```
+
+Corpo JSON:
+
+```json
+{
+  "message": "Texto digitado no campo da Godot"
+}
+```
+
+Resposta de sucesso:
+
+```json
+{
+  "success": true,
+  "message": "Mensagem enviada com sucesso."
+}
+```
+
+O texto é enviado como texto simples, com limite de 5.000 caracteres. Há um limite básico de uma mensagem a cada 30 segundos e dez por hora por IP. Como a limitação atual usa memória local, ela é apenas uma proteção básica para protótipo; para produção, use um limitador compartilhado e/ou CAPTCHA. As credenciais SMTP continuam somente nas variáveis de ambiente da Vercel.
+
+Exemplo Godot 4 (troque `$LineEdit` pelo caminho do seu campo de texto):
+
+```gdscript
+const EMAIL_BRIDGE_URL := "https://mage-cup-mdcb.vercel.app"
+
+func enviar_mensagem() -> void:
+    var texto: String = $LineEdit.text.strip_edges()
+
+    if texto.is_empty():
+        print("Digite uma mensagem antes de enviar.")
+        return
+
+    var http := HTTPRequest.new()
+    add_child(http)
+
+    var headers := PackedStringArray([
+        "Content-Type: application/json"
+    ])
+    var body := JSON.stringify({"message": texto})
+
+    var erro := http.request(
+        EMAIL_BRIDGE_URL + "/api/send-message",
+        headers,
+        HTTPClient.METHOD_POST,
+        body
+    )
+
+    if erro != OK:
+        http.queue_free()
+        print("Não foi possível iniciar o envio.")
+        return
+
+    var resposta = await http.request_completed
+    var status_http: int = resposta[1]
+    var dados = JSON.parse_string(
+        resposta[3].get_string_from_utf8()
+    )
+    http.queue_free()
+
+    if status_http >= 200 and status_http < 300 \\
+    and dados is Dictionary and dados.get("success", false):
+        print("Mensagem enviada!")
+        $LineEdit.clear()
+    else:
+        var motivo := "Erro ao enviar a mensagem."
+        if dados is Dictionary:
+            motivo = str(dados.get("error", motivo))
+        print(motivo)
+```
+
 ## Verificar OTP
 
 ```http
